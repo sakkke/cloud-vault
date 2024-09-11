@@ -201,6 +201,35 @@ export function IndexPage() {
     }
   }, [])
 
+  const handleDelete = useCallback(async (item: Item) => {
+    if (!user) return
+
+    // データベースからアイテムを削除
+    const { error: deleteError } = await supabase
+      .from('items')
+      .delete()
+      .eq('id', item.id)
+
+    if (deleteError) {
+      console.error('アイテムの削除エラー:', deleteError)
+      return
+    }
+
+    // ファイルの場合、ストレージからも削除
+    if (item.type === 'file' && item.file_path) {
+      const { error: storageError } = await supabase.storage
+        .from('files')
+        .remove([item.file_path])
+
+      if (storageError) {
+        console.error('ストレージからのファイル削除エラー:', storageError)
+      }
+    }
+
+    // 状態を更新
+    setItems(prevItems => prevItems.filter(i => i.id !== item.id))
+  }, [user])
+
   if (!user) {
     return <div>ログインしてください。</div>
   }
@@ -369,7 +398,9 @@ export function IndexPage() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem>Rename</DropdownMenuItem>
                           <DropdownMenuItem>Move</DropdownMenuItem>
-                          <DropdownMenuItem>Delete</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDelete(item)}>
+                            削除
+                          </DropdownMenuItem>
                           {item.type === 'file' && (
                             <DropdownMenuItem onClick={() => handleDownload(item)}>
                               <Download className="mr-2 h-4 w-4" />
