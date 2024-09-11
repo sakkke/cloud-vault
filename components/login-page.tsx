@@ -2,11 +2,19 @@
 
 import { Button } from "@/components/ui/button"
 import { Mail } from 'lucide-react'
+import { createClient } from "@/utils/supabase/client"
 
 export function LoginPage() {
   const handleGoogleLogin = () => {
     // TODO: Implement Google login logic
     console.log('Google login attempted')
+    const supabase = createClient()
+    supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL!}/auth/callback`,
+      },
+    })
   }
 
   return (

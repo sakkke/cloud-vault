@@ -1,7 +1,7 @@
-import { LoginPage } from "@/components/login-page"
+import { IndexPage } from "@/components/index-page"
 
 export default function Page() {
-  return <LoginPage />
+  return <IndexPage />
 }
 
 export const runtime = "edge";
