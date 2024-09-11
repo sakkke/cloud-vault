@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Folder, File, Search, Plus, MoreVertical, Home, Star, Trash } from 'lucide-react'
+import { Folder, File, Plus, MoreVertical, Home, Star, Trash } from 'lucide-react'
 
 // Mock data for files and folders
 const mockItems = [
