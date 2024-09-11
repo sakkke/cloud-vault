@@ -57,17 +57,15 @@ export function IndexPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchItems = useCallback(async () => {
-    if (!user) return
-
+  const fetchItems = useCallback(async (view: string, userId: string) => {
     setIsLoading(true)
     setError(null)
 
     const { data, error } = await supabase
       .from('items')
       .select('*')
-      .eq('view', currentView)
-      .eq('user_id', user.id)
+      .eq('view', view)
+      .eq('user_id', userId)
     
     if (error) {
       console.error('Error fetching items:', error)
@@ -76,24 +74,24 @@ export function IndexPage() {
       setItems(data as Item[] || [])
     }
     setIsLoading(false)
-  }, [user, currentView]) // user と currentView を依存配列に追加
+  }, []) // 依存配列を空にする
 
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
       if (user) {
-        fetchItems()
+        fetchItems(currentView, user.id)
       } else {
         setIsLoading(false)
       }
     }
     fetchUser()
-  }, [fetchItems]) // fetchItems を依存配列に追加
+  }, []) // 初回レンダリング時のみ実行
 
   useEffect(() => {
     if (user) {
-      fetchItems()
+      fetchItems(currentView, user.id)
     }
   }, [currentView, user, fetchItems]) // fetchItems を依存配列に追加
 
