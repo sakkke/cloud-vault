@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { createClient } from '@/utils/supabase/client'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -28,22 +29,9 @@ import {
 import { Folder, File, Search, Plus, MoreVertical, Home, Star, Trash, Upload } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { User } from '@supabase/supabase-js'
 
-// Mock data for files and folders
-const initialMockItems = [
-  { id: 1, name: 'Documents', type: 'folder', lastModified: '2023-06-01' },
-  { id: 2, name: 'Images', type: 'folder', lastModified: '2023-06-02' },
-  { id: 3, name: 'report.pdf', type: 'file', lastModified: '2023-06-03' },
-  { id: 4, name: 'presentation.pptx', type: 'file', lastModified: '2023-06-04' },
-]
-
-const starredItems = [
-  { id: 3, name: 'report.pdf', type: 'file', lastModified: '2023-06-03' },
-]
-
-const trashedItems = [
-  { id: 5, name: 'old_document.docx', type: 'file', lastModified: '2023-05-15' },
-]
+const supabase = createClient()
 
 export function IndexPage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -51,53 +39,120 @@ export function IndexPage() {
   const [isNewItemDialogOpen, setIsNewItemDialogOpen] = useState(false)
   const [newItemName, setNewItemName] = useState('')
   const [newItemType, setNewItemType] = useState('file')
-  const [mockItems, setMockItems] = useState(initialMockItems)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [items, setItems] = useState<any[]>([])
+  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const getFilteredItems = () => {
-    let items
-    switch (currentView) {
-      case 'starred':
-        items = starredItems
-        break
-      case 'trash':
-        items = trashedItems
-        break
-      default:
-        items = mockItems
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
+      if (user) {
+        fetchItems()
+      } else {
+        setIsLoading(false)
+      }
     }
-    return items.filter(item =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    fetchUser()
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      fetchItems()
+    }
+  }, [currentView, user])
+
+  const fetchItems = async () => {
+    if (!user) return
+
+    setIsLoading(true)
+    setError(null)
+
+    let { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('view', currentView)
+      .eq('user_id', user.id)
+    
+    if (error) {
+      console.error('Error fetching items:', error)
+      setError('アイテムの取得中にエラーが発生しました。')
+    } else {
+      setItems(data || [])
+    }
+    setIsLoading(false)
   }
 
-  const filteredItems = getFilteredItems()
+  const handleCreateNewItem = async () => {
+    if (!user) return
 
-  const handleCreateNewItem = () => {
     const newItem = {
-      id: Date.now(),
       name: newItemName,
       type: newItemType,
-      lastModified: new Date().toISOString().split('T')[0]
+      last_modified: new Date().toISOString(),
+      view: currentView,
+      user_id: user.id
     }
-    setMockItems([...mockItems, newItem])
+
+    const { data, error } = await supabase
+      .from('items')
+      .insert([newItem])
+      .select()
+
+    if (error) {
+      console.error('Error creating new item:', error)
+    } else {
+      setItems([...items, data[0]])
+    }
+
     setIsNewItemDialogOpen(false)
     setNewItemName('')
     setNewItemType('file')
   }
 
-  const handleFileUpload = (files: FileList | null) => {
-    if (files) {
-      const newFiles = Array.from(files).map(file => ({
-        id: Date.now() + Math.random(),
-        name: file.name,
-        type: 'file',
-        lastModified: new Date().toISOString().split('T')[0]
-      }))
-      setMockItems([...mockItems, ...newFiles])
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!user || !files) return
+
+    for (const file of Array.from(files)) {
+      const filePath = `${user.id}/${currentView}/${file.name}`
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('files')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('ファイルのアップロードエラー:', uploadError)
+      } else {
+        const newItem = {
+          name: file.name,
+          type: 'file',
+          last_modified: new Date().toISOString(),
+          view: currentView,
+          file_path: uploadData.path,
+          user_id: user.id
+        }
+
+        const { data: insertData, error: insertError } = await supabase
+          .from('items')
+          .insert([newItem])
+          .select()
+
+        if (insertError) {
+          console.error('ファイルレコードの挿入エラー:', insertError)
+        } else if (insertData && insertData.length > 0) {
+          const insertedItem = insertData[0]
+          setItems(prevItems => [...prevItems, insertedItem])
+          console.log('挿入されたアイテムのID:', insertedItem.id)
+        }
+      }
     }
   }
+
+  const filteredItems = items.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -115,6 +170,18 @@ export function IndexPage() {
     const files = event.dataTransfer.files
     handleFileUpload(files)
   }, [handleFileUpload])
+
+  if (!user) {
+    return <div>ログインしてください。</div>
+  }
+
+  if (isLoading) {
+    return <div>読み込み中...</div>
+  }
+
+  if (error) {
+    return <div>{error}</div>
+  }
 
   return (
     <div 
@@ -239,44 +306,48 @@ export function IndexPage() {
             {currentView === 'myDrive' ? 'My Drive' : 
              currentView === 'starred' ? 'Starred' : 'Trash'}
           </h2>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Last modified</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredItems.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">
-                    {item.type === 'folder' ? (
-                      <Folder className="inline mr-2 h-4 w-4" />
-                    ) : (
-                      <File className="inline mr-2 h-4 w-4" />
-                    )}
-                    {item.name}
-                  </TableCell>
-                  <TableCell>{item.lastModified}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Rename</DropdownMenuItem>
-                        <DropdownMenuItem>Move</DropdownMenuItem>
-                        <DropdownMenuItem>Delete</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+          {filteredItems.length === 0 ? (
+            <p>アイテムがありません。</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Last modified</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">
+                      {item.type === 'folder' ? (
+                        <Folder className="inline mr-2 h-4 w-4" />
+                      ) : (
+                        <File className="inline mr-2 h-4 w-4" />
+                      )}
+                      {item.name}
+                    </TableCell>
+                    <TableCell>{new Date(item.last_modified).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem>Rename</DropdownMenuItem>
+                          <DropdownMenuItem>Move</DropdownMenuItem>
+                          <DropdownMenuItem>Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </main>
     </div>
