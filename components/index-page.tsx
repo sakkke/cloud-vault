@@ -42,6 +42,7 @@ interface Item {
   view: string;
   file_path?: string;
   user_id: string;
+  starred: boolean; // 新しいプロパティ
 }
 
 export function IndexPage() {
@@ -61,12 +62,19 @@ export function IndexPage() {
     setIsLoading(true)
     setError(null)
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('items')
       .select('*')
-      .eq('view', view)
       .eq('user_id', userId)
-    
+
+    if (view === 'starred') {
+      query = query.eq('starred', true)
+    } else {
+      query = query.eq('view', view)
+    }
+
+    const { data, error } = await query
+
     if (error) {
       console.error('Error fetching items:', error)
       setError('アイテムの取得中にエラーが発生しました。')
@@ -74,7 +82,7 @@ export function IndexPage() {
       setItems(data as Item[] || [])
     }
     setIsLoading(false)
-  }, []) // 依存配列を空にする
+  }, [])
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -103,7 +111,8 @@ export function IndexPage() {
       type: newItemType as 'file' | 'folder',
       last_modified: new Date().toISOString(),
       view: currentView,
-      user_id: user.id
+      user_id: user.id,
+      starred: false // 新しいプロパティ
     }
 
     const { data, error } = await supabase
@@ -140,7 +149,8 @@ export function IndexPage() {
           last_modified: new Date().toISOString(),
           view: currentView,
           file_path: uploadData.path,
-          user_id: user.id
+          user_id: user.id,
+          starred: false // 新しいプロパティ
         }
 
         const { data: insertData, error: insertError } = await supabase
@@ -159,9 +169,29 @@ export function IndexPage() {
     }
   }, [user, currentView])
 
+  const handleToggleStar = useCallback(async (item: Item) => {
+    if (!user) return;
+
+    const updatedItem = { ...item, starred: !item.starred };
+    const { error } = await supabase
+      .from('items')
+      .update({ starred: updatedItem.starred })
+      .eq('id', item.id);
+
+    if (error) {
+      console.error('スター状態の更新エラー:', error);
+    } else {
+      setItems(prevItems =>
+        prevItems.map(i => (i.id === item.id ? updatedItem : i))
+      );
+      // スター状態が変更された後、現在のビューを再フェッチ
+      fetchItems(currentView, user.id);
+    }
+  }, [user, currentView, fetchItems]);
+
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -389,6 +419,13 @@ export function IndexPage() {
                     </TableCell>
                     <TableCell>{new Date(item.last_modified).toLocaleString()}</TableCell>
                     <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleStar(item)}
+                      >
+                        <Star className={`h-4 w-4 ${item.starred ? 'fill-yellow-400' : ''}`} />
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" className="h-8 w-8 p-0">
