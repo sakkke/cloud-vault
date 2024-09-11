@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -17,10 +17,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Folder, File, Plus, MoreVertical, Home, Star, Trash } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Folder, File, Search, Plus, MoreVertical, Home, Star, Trash, Upload } from 'lucide-react'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 // Mock data for files and folders
-const mockItems = [
+const initialMockItems = [
   { id: 1, name: 'Documents', type: 'folder', lastModified: '2023-06-01' },
   { id: 2, name: 'Images', type: 'folder', lastModified: '2023-06-02' },
   { id: 3, name: 'report.pdf', type: 'file', lastModified: '2023-06-03' },
@@ -38,6 +48,12 @@ const trashedItems = [
 export function IndexPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentView, setCurrentView] = useState('myDrive')
+  const [isNewItemDialogOpen, setIsNewItemDialogOpen] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+  const [newItemType, setNewItemType] = useState('file')
+  const [mockItems, setMockItems] = useState(initialMockItems)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const getFilteredItems = () => {
     let items
@@ -58,8 +74,55 @@ export function IndexPage() {
 
   const filteredItems = getFilteredItems()
 
+  const handleCreateNewItem = () => {
+    const newItem = {
+      id: Date.now(),
+      name: newItemName,
+      type: newItemType,
+      lastModified: new Date().toISOString().split('T')[0]
+    }
+    setMockItems([...mockItems, newItem])
+    setIsNewItemDialogOpen(false)
+    setNewItemName('')
+    setNewItemType('file')
+  }
+
+  const handleFileUpload = (files: FileList | null) => {
+    if (files) {
+      const newFiles = Array.from(files).map(file => ({
+        id: Date.now() + Math.random(),
+        name: file.name,
+        type: 'file',
+        lastModified: new Date().toISOString().split('T')[0]
+      }))
+      setMockItems([...mockItems, ...newFiles])
+    }
+  }
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const onDragLeave = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    setIsDragging(false)
+  }, [])
+
+  const onDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    setIsDragging(false)
+    const files = event.dataTransfer.files
+    handleFileUpload(files)
+  }, [handleFileUpload])
+
   return (
-    <div className="flex h-screen bg-background">
+    <div 
+      className="flex h-screen bg-background"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {/* Sidebar */}
       <aside className="w-64 bg-muted p-4 hidden md:block">
         <nav className="space-y-2">
@@ -91,7 +154,12 @@ export function IndexPage() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col relative">
+        {isDragging && (
+          <div className="absolute inset-0 bg-primary/20 border-2 border-dashed border-primary flex items-center justify-center z-50">
+            <p className="text-2xl font-bold text-primary">Drop files here to upload</p>
+          </div>
+        )}
         {/* Header */}
         <header className="border-b p-4">
           <div className="flex items-center space-x-4">
@@ -102,9 +170,65 @@ export function IndexPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New
+            <Dialog open={isNewItemDialogOpen} onOpenChange={setIsNewItemDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New Item</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">
+                      Name
+                    </Label>
+                    <Input
+                      id="name"
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="type" className="text-right">
+                      Type
+                    </Label>
+                    <RadioGroup
+                      id="type"
+                      value={newItemType}
+                      onValueChange={setNewItemType}
+                      className="col-span-3"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="file" id="file" />
+                        <Label htmlFor="file">File</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="folder" id="folder" />
+                        <Label htmlFor="folder">Folder</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleCreateNewItem}>Create</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => handleFileUpload(e.target.files)}
+              className="hidden"
+              multiple
+            />
+            <Button onClick={() => fileInputRef.current?.click()}>
+              <Upload className="mr-2 h-4 w-4" />
+              Upload
             </Button>
           </div>
         </header>
