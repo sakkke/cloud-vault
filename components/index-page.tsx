@@ -26,7 +26,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Folder, File, Plus, MoreVertical, Home, Star, Trash, Upload } from 'lucide-react'
+import { Folder, File, Plus, MoreVertical, Home, Star, Trash, Upload, Download } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { User } from '@supabase/supabase-js'
@@ -179,6 +179,27 @@ export function IndexPage() {
     const files = event.dataTransfer.files
     handleFileUpload(files)
   }, [handleFileUpload])
+
+  const handleDownload = useCallback(async (item: Item) => {
+    if (item.type !== 'file' || !item.file_path) return
+
+    const { data, error } = await supabase.storage
+      .from('files')
+      .download(item.file_path)
+
+    if (error) {
+      console.error('ファイルのダウンロードエラー:', error)
+    } else if (data) {
+      const url = URL.createObjectURL(data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = item.name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    }
+  }, [])
 
   if (!user) {
     return <div>ログインしてください。</div>
@@ -349,6 +370,12 @@ export function IndexPage() {
                           <DropdownMenuItem>Rename</DropdownMenuItem>
                           <DropdownMenuItem>Move</DropdownMenuItem>
                           <DropdownMenuItem>Delete</DropdownMenuItem>
+                          {item.type === 'file' && (
+                            <DropdownMenuItem onClick={() => handleDownload(item)}>
+                              <Download className="mr-2 h-4 w-4" />
+                              Download
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
