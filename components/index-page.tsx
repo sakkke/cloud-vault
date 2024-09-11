@@ -26,25 +26,57 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Folder, File, Search, Plus, MoreVertical, Home, Star, Trash, Upload } from 'lucide-react'
+import { Folder, File, Plus, MoreVertical, Home, Star, Trash, Upload } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { User } from '@supabase/supabase-js'
 
 const supabase = createClient()
 
+// Itemインターフェースの定義
+interface Item {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  last_modified: string;
+  view: string;
+  file_path?: string;
+  user_id: string;
+}
+
 export function IndexPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentView, setCurrentView] = useState('myDrive')
   const [isNewItemDialogOpen, setIsNewItemDialogOpen] = useState(false)
   const [newItemName, setNewItemName] = useState('')
-  const [newItemType, setNewItemType] = useState('file')
+  const [newItemType, setNewItemType] = useState<'file' | 'folder'>('file')
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [items, setItems] = useState<any[]>([])
+  const [items, setItems] = useState<Item[]>([])
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const fetchItems = useCallback(async () => {
+    if (!user) return
+
+    setIsLoading(true)
+    setError(null)
+
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('view', currentView)
+      .eq('user_id', user.id)
+    
+    if (error) {
+      console.error('Error fetching items:', error)
+      setError('アイテムの取得中にエラーが発生しました。')
+    } else {
+      setItems(data as Item[] || [])
+    }
+    setIsLoading(false)
+  }, [user, currentView]) // user と currentView を依存配列に追加
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -57,41 +89,20 @@ export function IndexPage() {
       }
     }
     fetchUser()
-  }, [])
+  }, [fetchItems]) // fetchItems を依存配列に追加
 
   useEffect(() => {
     if (user) {
       fetchItems()
     }
-  }, [currentView, user])
-
-  const fetchItems = async () => {
-    if (!user) return
-
-    setIsLoading(true)
-    setError(null)
-
-    let { data, error } = await supabase
-      .from('items')
-      .select('*')
-      .eq('view', currentView)
-      .eq('user_id', user.id)
-    
-    if (error) {
-      console.error('Error fetching items:', error)
-      setError('アイテムの取得中にエラーが発生しました。')
-    } else {
-      setItems(data || [])
-    }
-    setIsLoading(false)
-  }
+  }, [currentView, user, fetchItems]) // fetchItems を依存配列に追加
 
   const handleCreateNewItem = async () => {
     if (!user) return
 
-    const newItem = {
+    const newItem: Omit<Item, 'id'> = {
       name: newItemName,
-      type: newItemType,
+      type: newItemType as 'file' | 'folder',
       last_modified: new Date().toISOString(),
       view: currentView,
       user_id: user.id
@@ -105,7 +116,7 @@ export function IndexPage() {
     if (error) {
       console.error('Error creating new item:', error)
     } else {
-      setItems([...items, data[0]])
+      setItems([...items, data[0] as Item])
     }
 
     setIsNewItemDialogOpen(false)
@@ -113,7 +124,7 @@ export function IndexPage() {
     setNewItemType('file')
   }
 
-  const handleFileUpload = async (files: FileList | null) => {
+  const handleFileUpload = useCallback(async (files: FileList | null) => {
     if (!user || !files) return
 
     for (const file of Array.from(files)) {
@@ -125,7 +136,7 @@ export function IndexPage() {
       if (uploadError) {
         console.error('ファイルのアップロードエラー:', uploadError)
       } else {
-        const newItem = {
+        const newItem: Omit<Item, 'id'> = {
           name: file.name,
           type: 'file',
           last_modified: new Date().toISOString(),
@@ -142,13 +153,13 @@ export function IndexPage() {
         if (insertError) {
           console.error('ファイルレコードの挿入エラー:', insertError)
         } else if (insertData && insertData.length > 0) {
-          const insertedItem = insertData[0]
+          const insertedItem = insertData[0] as Item
           setItems(prevItems => [...prevItems, insertedItem])
           console.log('挿入されたアイテムのID:', insertedItem.id)
         }
       }
     }
-  }
+  }, [user, currentView])
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -267,7 +278,7 @@ export function IndexPage() {
                     <RadioGroup
                       id="type"
                       value={newItemType}
-                      onValueChange={setNewItemType}
+                      onValueChange={(value: 'file' | 'folder') => setNewItemType(value)}
                       className="col-span-3"
                     >
                       <div className="flex items-center space-x-2">
@@ -318,7 +329,7 @@ export function IndexPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredItems.map((item) => (
+                {filteredItems.map((item: Item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">
                       {item.type === 'folder' ? (
